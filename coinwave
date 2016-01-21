@@ -1,0 +1,49 @@
+#!/usr/bin/env ruby
+#
+# Coinwave - Scan the blockchain for transactions and create a
+#            wave importable csv file.
+#    Usage - ./Coinwave <btc_address> >output.csv
+#            NB. You must run `wget <price_source>` before using to get the
+#            monthly price data from the url below.
+#
+# price_source="https://api.bitcoinaverage.com/history/CAD/per_hour_monthly_sliding_window.csv"
+
+require 'uri'
+require 'open-uri'
+require 'json'
+require 'csv'
+
+address=ARGV[0]
+
+# Create a hash of hourly btc prices.
+prices = CSV.read("per_hour_monthly_sliding_window.csv")
+prices.shift
+
+price_hash = Hash.new
+prices.each { |row|
+  old_date = DateTime.parse(row[0])
+  old_timestamp = old_date.strftime("%s").to_i - (old_date.strftime("%s").to_i % 86400)
+  price_hash[old_timestamp.to_s] = row[3]
+}
+
+# Get transactions from blockchain.
+uri=URI.parse("https://bitcoin.toshi.io/api/v0/addresses/#{address}/transactions")
+
+puts "date,amount,desc"
+
+uri.open { |json|
+  txs = JSON.load(json)
+  txs["transactions"].each { |tx| 
+    if tx["block_branch"] == "main"
+      tx["outputs"].each { |output|
+        if output["addresses"][0] == address
+          date = DateTime.parse(tx["block_time"])
+          tx_timestamp = date.strftime("%s").to_i - (date.strftime("%s").to_i % 86400)
+          cad_value = output["amount"].to_i * price_hash[tx_timestamp.to_s].to_i / 100000000.0
+          line = [ date.strftime("%Y/%m/%d"), cad_value.round(2).to_s, tx["hash"] ].join(",")
+          puts line
+        end
+      }
+    end
+  }
+}
