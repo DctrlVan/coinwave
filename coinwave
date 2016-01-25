@@ -27,7 +27,7 @@ prices.each { |row|
 }
 
 # Get transactions from blockchain.
-uri=URI.parse("https://bitcoin.toshi.io/api/v0/addresses/#{address}/transactions")
+uri=URI.parse("https://bitcoin.toshi.io/api/v0/addresses/#{address}/transactions?limit=2000")
 
 puts "date,amount,desc"
 
