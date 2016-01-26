@@ -3,8 +3,6 @@
 # Coinwave - Scan the blockchain for transactions and create a
 #            wave importable csv file.
 #    Usage - ./Coinwave <btc_address> >output.csv
-#            NB. You must run `wget <price_source>` before using to get the
-#            monthly price data from the url below.
 #
 # price_source="https://api.bitcoinaverage.com/history/CAD/per_hour_monthly_sliding_window.csv"
 
@@ -15,35 +13,80 @@ require 'csv'
 
 address=ARGV[0]
 
-# Create a hash of hourly btc prices.
-prices = CSV.read("per_hour_monthly_sliding_window.csv")
-prices.shift
+class localized
+  price_hash = Hash.new
 
-price_hash = Hash.new
-prices.each { |row|
-  old_date = DateTime.parse(row[0])
-  old_timestamp = old_date.strftime("%s").to_i - (old_date.strftime("%s").to_i % 86400)
-  price_hash[old_timestamp.to_s] = row[3]
-}
+  # Fetch API data into ary of arys, store result in local file.
+  def process_data(url, timespan)
+    #TODO: Check CSV.read actually works on a URI.parse result.
+    prices = CSV.read(url)
+    prices.shift
 
-# Get transactions from blockchain.
-uri=URI.parse("https://bitcoin.toshi.io/api/v0/addresses/#{address}/transactions?limit=2000")
+    prices.each { |row|
+      old_date = DateTime.parse(row[0]).strftime("%s").to_i
+      old_timestamp = normalize(timespan, old_date)
+      price_hash[old_timestamp] = row[3]
+    }
+  end
 
-puts "date,amount,desc"
+  def fetch_lookups(code=USD)
+    daily_url = URI.parse("https://api.bitcoinaverage.com/history/#{code}/per_day_all_time_history.csv")
+    hourly_url = URI.parse("https://api.bitcoinaverage.com/history/#{code}/per_hour_monthly_sliding_window.csv")
+    process_data(daily_url, 86400)
+    process_data(hourly_url, 3600)
+  end
 
-uri.open { |json|
-  txs = JSON.load(json)
-  txs["transactions"].each { |tx| 
-    if tx["block_branch"] == "main"
-      tx["outputs"].each { |output|
-        if output["addresses"][0] == address
-          date = DateTime.parse(tx["block_time"])
-          tx_timestamp = date.strftime("%s").to_i - (date.strftime("%s").to_i % 86400)
-          cad_value = output["amount"].to_i * price_hash[tx_timestamp.to_s].to_i / 100000000.0
-          line = [ date.strftime("%Y/%m/%d"), cad_value.round(2).to_s, tx["hash"] ].join(",")
-          puts line
+  def save_lookup(dest="lookup.json")
+    serialized = JSON.generate(price_hash)
+    File.write(dest, serialized)
+  end
+
+  # Fetch bitcoin transactions for address.
+  def fetch_txs(addr)
+    return URI.parse("https://bitcoin.toshi.io/api/v0/addresses/#{addr}/transactions?limit=2000")
+  end
+
+  # Round the timestamps in lookup tables.
+  def normalize(timespan, txts)
+      old_date = DateTime.parse(txts)
+      old_timestamp = old_date.strftime("%s").to_i - (old_date.strftime("%s").to_i % timespan)
+      return old_timestamp.to_s
+  end
+
+  # In-place convert a load of csv-ish data to local currency.
+  def convert_batch(addr)
+    puts "date,amount,desc"
+    uri=fetch_txs(addr)
+    uri.open { |json|
+      txs = JSON.load(json)
+      txs["transactions"].each { |tx| 
+        if tx["block_branch"] == "main"
+          tx["outputs"].each { |output|
+            if output["addresses"][0] == address
+              tx_timestamp = normalize(3600, tx["block_time"])
+              #TODO: check for hourly key, failover to daily key.
+              cad_value = output["amount"].to_i * price_hash[tx_timestamp].to_i / 100000000.0
+              line = [ date.strftime("%Y/%m/%d"), cad_value.round(2).to_s, tx["hash"] ].join(",")
+              puts line
+            end
+          }
         end
       }
+    }
+  end
+
+  # Return the local price for a given btc amount and timestamp.
+  def convert_once(amt,txts)
+    if hash.key.exists(normalize(3600,txts))
+      cad_value = output["amount"].to_i * price_hash[normalize(3600,txts)].to_i / 100000000.0
+    else
+      #TODO: double check key exists.
+      cad_value = output["amount"].to_i * price_hash[normalize(86400,txts)].to_i / 100000000.0
     end
-  }
-}
+    return cad_value
+
+  end
+
+  #TODO: Make sure convert_batch(address) is actually called somewhere and has prereqs.
+
+end
