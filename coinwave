@@ -11,27 +11,42 @@ require 'open-uri'
 require 'json'
 require 'csv'
 
-address=ARGV[0]
+#address=ARGV[0]
 
-class localized
-  price_hash = Hash.new
+class Coinwave
+  attr_accessor :address
 
-  # Fetch API data into ary of arys, store result in local file.
+  def initialize(address)
+    @price_hash = Hash.new
+    @address = address
+
+    #fetch_lookups on initialize?
+  end
+
+  def to_s
+    convert_batch
+  end
+
+  # Fetch API data into ary of arys
   def process_data(url, timespan)
     #TODO: Check CSV.read actually works on a URI.parse result.
     prices = CSV.read(url)
     prices.shift
 
-    prices.each { |row|
+    prices.each do |row|
       old_date = DateTime.parse(row[0]).strftime("%s").to_i
       old_timestamp = normalize(timespan, old_date)
       price_hash[old_timestamp] = row[3]
-    }
+    end
   end
 
   def fetch_lookups(code=USD)
-    daily_url = URI.parse("https://api.bitcoinaverage.com/history/#{code}/per_day_all_time_history.csv")
-    hourly_url = URI.parse("https://api.bitcoinaverage.com/history/#{code}/per_hour_monthly_sliding_window.csv")
+    daily_url = URI.parse(
+      "https://api.bitcoinaverage.com/history/#{code}/per_day_all_time_history.csv")
+    hourly_url = URI.parse(
+      "https://api.bitcoinaverage.com/history/#{code}/per_hour_monthly_sliding_window.csv")
+    # Order is important, we want the more accurate hourly
+    # data to clobber any coincidental daily data.
     process_data(daily_url, 86400)
     process_data(hourly_url, 3600)
   end
@@ -42,8 +57,9 @@ class localized
   end
 
   # Fetch bitcoin transactions for address.
-  def fetch_txs(addr)
-    return URI.parse("https://bitcoin.toshi.io/api/v0/addresses/#{addr}/transactions?limit=2000")
+  def fetch_txs
+    return URI.parse(
+      "https://bitcoin.toshi.io/api/v0/addresses/#{@address}/transactions?limit=2000")
   end
 
   # Round the timestamps in lookup tables.
@@ -54,37 +70,37 @@ class localized
   end
 
   # In-place convert a load of csv-ish data to local currency.
-  def convert_batch(addr)
+  def convert_batch
     puts "date,amount,desc"
-    uri=fetch_txs(addr)
-    uri.open { |json|
+    uri=fetch_txs(@address)
+    uri.open do |json|
       txs = JSON.load(json)
-      txs["transactions"].each { |tx| 
+      txs["transactions"].each do |tx| 
         if tx["block_branch"] == "main"
-          tx["outputs"].each { |output|
-            if output["addresses"][0] == address
+          tx["outputs"].each do |output|
+            if output["addresses"][0] == @address
               tx_timestamp = normalize(3600, tx["block_time"])
-              #TODO: check for hourly key, failover to daily key.
-              cad_value = output["amount"].to_i * price_hash[tx_timestamp].to_i / 100000000.0
-              line = [ date.strftime("%Y/%m/%d"), cad_value.round(2).to_s, tx["hash"] ].join(",")
+              unless price_hash.key?(tx_timestamp)
+                tx_timestamp = normalize(86400, tx["block_time"])
+              end
+              local_value = output["amount"].to_i * price_hash[tx_timestamp].to_i / 100000000.0
+              date = DateTime.parse(tx["block_time"])
+              line = [ date.strftime("%Y/%m/%d"), local_value.round(2).to_s, tx["hash"] ].join(",")
               puts line
             end
-          }
+          end
         end
-      }
-    }
+      end
+    end
   end
 
   # Return the local price for a given btc amount and timestamp.
-  def convert_once(amt,txts)
-    if hash.key.exists(normalize(3600,txts))
-      cad_value = output["amount"].to_i * price_hash[normalize(3600,txts)].to_i / 100000000.0
-    else
-      #TODO: double check key exists.
-      cad_value = output["amount"].to_i * price_hash[normalize(86400,txts)].to_i / 100000000.0
+  def convert_single(amt, txts)
+    tx_timestamp = normalize(3600, txts)
+    unless price_hash.key?(tx_timestamp)
+      tx_timestamp = normalize(86400, txts)
     end
-    return cad_value
-
+    output["amount"].to_i * price_hash[normalize(86400,txts)].to_i / 100000000.0
   end
 
   #TODO: Make sure convert_batch(address) is actually called somewhere and has prereqs.
