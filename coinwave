@@ -16,14 +16,20 @@ require 'csv'
 class Coinwave
   attr_accessor :address
 
-  def initialize(address, code=USD)
+  def initialize(address, code:"USD")
     #TODO: Abort if address is not valid?
     @address = address
     @@price_hash=fetch_lookups(code)
+    @@lookup="lookup.json"
   end
 
   def to_s
     convert_batch
+  end
+
+  def load_lookup
+    if File.file?(lookup)
+      JSON.load(lookup)
   end
 
   # Fetch API data into ary of arys
@@ -109,6 +115,6 @@ class Coinwave
 
 end
 
-accounts=Coinwave.new(@ARGV[0], @ARGV[1])
+accounts=Coinwave.new(@ARGV[0], code:@ARGV[1])
 accounts.convert_batch
 accounts.save_lookup
