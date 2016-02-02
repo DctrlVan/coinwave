@@ -16,11 +16,10 @@ require 'csv'
 class Coinwave
   attr_accessor :address
 
-  def initialize(address)
-    @price_hash = Hash.new
+  def initialize(address, code=USD)
+    #TODO: Abort if address is not valid?
     @address = address
-
-    #fetch_lookups on initialize?
+    @@price_hash=fetch_lookups(code)
   end
 
   def to_s
@@ -30,13 +29,15 @@ class Coinwave
   # Fetch API data into ary of arys
   def process_data(url, timespan)
     #TODO: Check CSV.read actually works on a URI.parse result.
-    prices = CSV.read(url)
-    prices.shift
+    open(url) do |stream|
+      prices = CSV.new(stream)
+      prices.shift
 
-    prices.each do |row|
-      old_date = DateTime.parse(row[0]).strftime("%s").to_i
-      old_timestamp = normalize(timespan, old_date)
-      price_hash[old_timestamp] = row[3]
+      prices.each do |row|
+        old_date = DateTime.parse(row[0]).strftime("%s").to_i
+        norm_ts = normalize(timespan, old_date)
+        @@price_hash[norm_ts] = row[3]
+      end
     end
   end
 
@@ -49,6 +50,7 @@ class Coinwave
     # data to clobber any coincidental daily data.
     process_data(daily_url, 86400)
     process_data(hourly_url, 3600)
+    return price_hash
   end
 
   def save_lookup(dest="lookup.json")
@@ -106,3 +108,7 @@ class Coinwave
   #TODO: Make sure convert_batch(address) is actually called somewhere and has prereqs.
 
 end
+
+accounts=Coinwave.new(@ARGV[0], @ARGV[1])
+accounts.convert_batch
+accounts.save_lookup
