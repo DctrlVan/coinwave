@@ -1,3 +1,4 @@
 per_day_all_time_history.csv
 per_hour_monthly_sliding_window.csv
 output.csv
+*.json
