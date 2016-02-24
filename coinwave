@@ -115,9 +115,10 @@ class Coinwave
     output["amount"].to_i * @price_hash[normalize(86400,txts)].to_i / 100000000.0
   end
 
-  #TODO: Make sure convert_batch(address) is actually called somewhere and has prereqs.
-
 end
+
+#TODO: Write isMine() method for determining how much of each
+#      transaction is recombining or pay-to-self etc.
 
 accounts=Coinwave.new(ARGV[0], code:ARGV[1])
 accounts.fetch_lookups
