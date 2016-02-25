@@ -63,7 +63,7 @@ class Coinwave
     process_data(hourly_url, 3600)
   end
 
-  def save_lookup(dest="lookup.json")
+  def save_lookup(dest=@lookup)
     serialized = JSON.generate(@price_hash)
     File.write(dest, serialized)
   end
@@ -75,9 +75,9 @@ class Coinwave
   end
 
   # Round the timestamps in lookup tables.
-  def normalize(timespan, txts)
+  def normalize(accuracy, txts)
     old_date = DateTime.parse(txts)
-    old_timestamp = old_date.strftime("%s").to_i - (old_date.strftime("%s").to_i % timespan)
+    old_timestamp = old_date.strftime("%s").to_i - (old_date.strftime("%s").to_i % accuracy)
     return old_timestamp.to_s
   end
 
