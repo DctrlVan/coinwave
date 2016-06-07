@@ -6,12 +6,13 @@
 #
 # price_source="https://api.bitcoinaverage.com/history/CAD/per_hour_monthly_sliding_window.csv"
 
-require 'uri'
 require 'open-uri'
 require 'json'
 require 'csv'
 
 #address=ARGV[0]
+
+# TODO: Test for absent argument(s)
 
 class Coinwave
   attr_accessor :address
