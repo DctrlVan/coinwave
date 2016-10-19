@@ -1,28 +1,25 @@
-#!/usr/bin/env ruby
-#
-# Coinwave - Scan the blockchain for transactions, convert to local currency
-#            and create a wave importable csv file.
-#    Usage - ./Coinwave <btc_address> >output.csv
-#
-# price_source="https://api.bitcoinaverage.com/history/CAD/per_hour_monthly_sliding_window.csv"
-
 require 'open-uri'
 require 'json'
 require 'csv'
-
-#address=ARGV[0]
-
-# TODO: Test for absent argument(s)
+require 'bitcoin'
 
 class Coinwave
   attr_accessor :address, :code
 
   def initialize(address, code)
-    #TODO: Abort if address is not valid?
+    Bitcoin::valid_address?(address) or raise 'Bitcoin address was not valid.'
     @address = address
     @code = code ? code : "USD"
-    @lookup="lookup"
+    @lookup="lookup.#{@code}.json"
     @price_hash=load_local
+  end
+
+  def get_price(txts)
+    tx_timestamp = normalize(3600, txts)
+    unless @price_hash.key?(tx_timestamp)
+      tx_timestamp = normalize(86400, txts)
+    end
+    @price_hash[tx_timestamp]
   end
 
   def to_s
@@ -31,7 +28,8 @@ class Coinwave
 
   def load_local
     if File.file?(@lookup)
-      return JSON.load(@lookup)
+      lookup_file = File.open(@lookup, 'r')
+      return JSON.load(lookup_file)
     else
       return {}
     end
@@ -39,11 +37,9 @@ class Coinwave
 
   # Fetch API data into ary of arys
   def process_data(url, timespan)
-    #TODO: Check CSV.read actually works on a URI.parse result.
     open(url) do |stream|
       prices = CSV.new(stream)
-      prices.shift
-
+      prices.gets
       prices.each do |row|
         #old_date = DateTime.parse(row[0]).strftime("%s").to_i
         norm_ts = normalize(timespan, row[0])
@@ -52,22 +48,45 @@ class Coinwave
     end
   end
 
-  def fetch_lookups
+  def fetch_lookup
+
+    #TODO: Be more defensive here in the case of net request & filesystem issues.
+    #TODO: Derive separate save paths lookups from currency codes.
     daily_url = URI.parse(
       "https://api.bitcoinaverage.com/history/#{@code}/per_day_all_time_history.csv")
+		File.open("per_day_all_time_history.csv", "wb") do |saved_file|
+			open(daily_url, "rb") do |read_file|
+        # The jokers at bitcoinaverage are sending half unix, half dos encoded csvs :-/ 
+				saved_file.write(read_file.read.encode(universal_newline: true))
+			end
+		end
+
+    # Repeat for the more accurate hourly data (covers prior month only).
     hourly_url = URI.parse(
       "https://api.bitcoinaverage.com/history/#{@code}/per_hour_monthly_sliding_window.csv")
-    # Order is important, we want the more accurate hourly
+		File.open("per_hour_monthly_sliding_window.csv", "wb") do |saved_file|
+			open(hourly_url, "rb") do |read_file|
+				saved_file.write(read_file.read.encode(universal_newline: true))
+			end
+		end
+
+    #daily_url = "https://api.bitcoinaverage.com/history/#{@code}/per_day_all_time_history.csv"
+    #hourly_url = "https://api.bitcoinaverage.com/history/#{@code}/per_hour_monthly_sliding_window.csv"
+    
+    # Order is important here, we want the more accurate hourly
     # data to clobber any coincidental daily average data.
+    daily_url = "per_day_all_time_history.csv"
     process_data(daily_url, 86400)
-    #@price_hash.merge(load_lookup)
+
+    #@price_hash.merge(load_local)
+
+    hourly_url = "per_hour_monthly_sliding_window.csv"
     process_data(hourly_url, 3600)
   end
 
   def save_lookup(dest=@lookup)
-    #serialized = JSON.generate(@price_hash)
-    puts "#{dest}.#{@code}.json"
-    #File.write("#{dest}.#{@code}.json", serialized)
+    serialized = JSON.generate(@price_hash)
+    File.write("#{dest}", serialized)
   end
 
   # Fetch bitcoin transactions for address.
@@ -85,6 +104,7 @@ class Coinwave
 
   # In-place convert a load of csv-ish data to local currency.
   def convert_batch
+    #TODO: Take a datastructure param instead of calling fetch_txs().
     puts "date,amount,desc"
     uri=fetch_txs
     uri.open do |json|
@@ -93,13 +113,12 @@ class Coinwave
         if tx["block_branch"] == "main"
           tx["outputs"].each do |output|
             if output["addresses"][0] == @address
-              tx_timestamp = normalize(3600, tx["block_time"])
-              unless @price_hash.key?(tx_timestamp)
-                tx_timestamp = normalize(86400, tx["block_time"])
-              end
-              local_value = output["amount"].to_i * @price_hash[tx_timestamp].to_i / 100000000.0
+              # Note: it could be hours between blocks, should we really use the
+              # block timestamp for rate lookup?
+              local_value = to_fiat(output["amount"] ,tx["block_time"])
               date = DateTime.parse(tx["block_time"])
               line = [ date.strftime("%Y/%m/%d"), local_value.round(2).to_s, tx["hash"] ].join(",")
+              #TODO: Return a datastructure to caller rather than printing to stdout.
               puts line
             end
           end
@@ -109,20 +128,9 @@ class Coinwave
   end
 
   # Return the local price for a given btc amount and timestamp.
-  def convert_single(amt, txts)
-    tx_timestamp = normalize(3600, txts)
-    unless @price_hash.key?(tx_timestamp)
-      tx_timestamp = normalize(86400, txts)
-    end
-    output["amount"].to_i * @price_hash[normalize(86400,txts)].to_i / 100000000.0
+  def to_fiat(amt, txts)
+    price = get_price(txts).to_i
+    amt.to_i * price / 100000000.0
   end
 
 end
-
-#TODO: Write isMine() method for determining how much of each
-#      transaction is recombining or pay-to-self etc.
-
-accounts=Coinwave.new(ARGV[0], ARGV[1])
-accounts.fetch_lookups
-#accounts.convert_batch
-accounts.save_lookup
