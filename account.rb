@@ -1,5 +1,5 @@
 class Account
-  attr_accessor :addresses
+  attr_accessor :addresses, :accounts
 
   def initialize(addresses)
     @accounts = []
@@ -21,7 +21,7 @@ class Account
   end
 
   def filter_save(tx)
-    xfer = filter(tx)
+    xfer = filter_mine(tx)
     @accounts << xfer
   end
 end
