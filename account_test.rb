@@ -1,7 +1,7 @@
 #!/usr/bin/ruby
 
-require './account'
-require './sample_tx'
+require './lib/account'
+require './util/sample_tx'
 
 addresses = %w[ abc mno xyz ]
 

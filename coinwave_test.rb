@@ -6,7 +6,7 @@
 #
 # price_source="https://api.bitcoinaverage.com/history/CAD/per_hour_monthly_sliding_window.csv"
 
-require './coinwave.rb'
+require './lib/coinwave.rb'
 require 'satoshi-unit'
 
 # TODO: Test for absent argument(s)
